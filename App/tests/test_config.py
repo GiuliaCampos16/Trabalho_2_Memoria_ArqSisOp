@@ -50,6 +50,18 @@ class ConfigurationTests(unittest.TestCase):
     def test_default_configuration_is_valid(self) -> None:
         config.validate_configuration()
 
+    def test_alternative_configuration_is_valid(self) -> None:
+        # A validação usa os valores editáveis; os derivados serão recalculados apenas
+        # em uma nova execução, após editar config.py antes de iniciar o programa.
+        with (
+            patch.object(config, "LOGICAL_ADDRESS_BITS", 17),
+            patch.object(config, "PAGE_SIZE_BYTES", 512),
+            patch.object(config, "PHYSICAL_FRAME_COUNT", 64),
+            patch.object(config, "TLB_ENTRY_CAPACITY", 8),
+            patch.object(config, "PAGE_REPLACEMENT_POLICY", "second_chance"),
+        ):
+            config.validate_configuration()
+
     def test_non_positive_logical_address_bits_are_rejected(self) -> None:
         with patch.object(config, "LOGICAL_ADDRESS_BITS", 0):
             with self.assertRaisesRegex(ValueError, "LOGICAL_ADDRESS_BITS"):
