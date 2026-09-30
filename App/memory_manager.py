@@ -1,19 +1,15 @@
-"""Estado da memória física e operações básicas de paginação."""
+"""Estado da memória física e fluxo de tradução por paginação sob demanda."""
 
 from collections import deque
 
 import config
-from models import PageTableEntry, TranslationResult
+from models import PageTableEntry, SimulationStatistics, TranslationResult
 from policies import PageReplacementPolicy
 from tlb import TranslationLookasideBuffer
 
 
 class MemoryManager:
-    """Mantém páginas virtuais, quadros físicos e seus mapeamentos.
-
-    A Etapa 3 carrega páginas somente em quadros livres. O fluxo completo de tradução,
-    com TLB e substituição de páginas, será implementado na Etapa 4.
-    """
+    """Mantém páginas virtuais, quadros físicos e seus mapeamentos."""
 
     def __init__(
         self,
@@ -26,7 +22,7 @@ class MemoryManager:
         backingStoreBytes contém todo o espaço virtual, lido do arquivo binário.
         pageReplacementPolicy escolherá a página a remover quando a RAM estiver cheia.
         translationLookasideBuffer guardará traduções recentes de página para quadro.
-        As duas últimas dependências serão usadas no fluxo completo da Etapa 4.
+        As duas últimas dependências são consultadas durante cada tradução.
         """
 
         if len(backingStoreBytes) != config.virtualMemorySizeBytes:
@@ -62,6 +58,11 @@ class MemoryManager:
             self.InitializeVirtualPageByPhysicalFrameLista()
         )
 
+        # Contadores da execução; taxas e apresentação serão feitas na Etapa 7.
+        self.simulationStatistics: SimulationStatistics = (
+            self.InitializeSimulationStatistics()
+        )
+
     def InitializePageTableEntryLista(self) -> list[PageTableEntry]:
         """Cria uma entrada inicialmente ausente para cada página virtual."""
 
@@ -93,6 +94,24 @@ class MemoryManager:
             virtualPageByPhysicalFrameLista.append(None)
         return virtualPageByPhysicalFrameLista
 
+    def InitializeSimulationStatistics(self) -> SimulationStatistics:
+        """Cria contadores zerados para a execução deste gerenciador."""
+
+        simulationStatistics = SimulationStatistics()
+        return simulationStatistics
+
+    def InitializeTranslationStepsLista(self) -> list[str]:
+        """Prepara o registro ordenado dos eventos de uma tradução."""
+
+        translationStepsLista: list[str] = []
+        return translationStepsLista
+
+    def InitializeTranslationSteps(self, translationStepsLista: list[str]) -> tuple[str, ...]:
+        """Congela os passos para que o resultado não mude depois da tradução."""
+
+        translationSteps = tuple(translationStepsLista)
+        return translationSteps
+
     def DecomposeLogicalAddress(self, logicalAddress: int) -> tuple[int, int]:
         """Separa um endereço lógico em número de página e deslocamento."""
 
@@ -118,11 +137,30 @@ class MemoryManager:
 
         if not self.freePhysicalFrameQueue:
             raise RuntimeError(
-                "Não há quadros físicos livres. A substituição de páginas "
-                "será implementada na Etapa 4."
+                "Não há quadros físicos livres para este carregamento direto. "
+                "Use Translate para aplicar a política de substituição."
             )
 
         physicalFrameNumber = self.freePhysicalFrameQueue.popleft()
+        self.LoadVirtualPageIntoFrame(virtualPageNumber, physicalFrameNumber)
+        return physicalFrameNumber
+
+    def LoadVirtualPageIntoFrame(
+        self, virtualPageNumber: int, physicalFrameNumber: int
+    ) -> None:
+        """Copia uma página ausente para um quadro vazio e registra o mapeamento."""
+
+        if virtualPageNumber < 0 or virtualPageNumber >= config.virtualPageCount:
+            raise ValueError(f"Página virtual inválida: {virtualPageNumber}.")
+        if physicalFrameNumber < 0 or physicalFrameNumber >= config.physicalFrameCount:
+            raise ValueError(f"Quadro físico inválido: {physicalFrameNumber}.")
+
+        pageTableEntry = self.pageTableEntryLista[virtualPageNumber]
+        if pageTableEntry.isLoadedInPhysicalMemory:
+            raise ValueError(f"A página virtual {virtualPageNumber} já está carregada.")
+        if self.virtualPageByPhysicalFrameLista[physicalFrameNumber] is not None:
+            raise RuntimeError(f"O quadro físico {physicalFrameNumber} já está ocupado.")
+
         sourceStart = virtualPageNumber * config.pageSizeBytes
         sourceEnd = sourceStart + config.pageSizeBytes
         destinationStart = physicalFrameNumber * config.pageSizeBytes
@@ -139,7 +177,37 @@ class MemoryManager:
         self.virtualPageByPhysicalFrameLista[physicalFrameNumber] = (
             virtualPageNumber
         )
-        return physicalFrameNumber
+
+    def ReplaceVirtualPage(self, requestedVirtualPageNumber: int) -> tuple[int, int]:
+        """Escolhe uma vítima e reutiliza seu quadro para a página solicitada."""
+
+        victimVirtualPageNumber = self.pageReplacementPolicy.SelectVictim(
+            self.pageTableEntryLista
+        )
+        if type(victimVirtualPageNumber) is not int:
+            raise RuntimeError("A política retornou uma página vítima inválida.")
+        if victimVirtualPageNumber < 0 or victimVirtualPageNumber >= config.virtualPageCount:
+            raise RuntimeError("A política retornou uma página vítima fora da tabela.")
+
+        victimPageTableEntry = self.pageTableEntryLista[victimVirtualPageNumber]
+        physicalFrameNumber = victimPageTableEntry.physicalFrameNumber
+        if not victimPageTableEntry.isLoadedInPhysicalMemory or physicalFrameNumber is None:
+            raise RuntimeError("A política escolheu uma página que não está na memória física.")
+        if physicalFrameNumber < 0 or physicalFrameNumber >= config.physicalFrameCount:
+            raise RuntimeError("A página vítima aponta para um quadro físico inválido.")
+        if self.virtualPageByPhysicalFrameLista[physicalFrameNumber] != victimVirtualPageNumber:
+            raise RuntimeError("O mapa inverso não corresponde à página vítima escolhida.")
+
+        # O quadro só pode receber novos bytes depois que ambos os registros antigos
+        # deixarem de apontar para ele; a TLB jamais pode conservar a tradução vítima.
+        victimPageTableEntry.isLoadedInPhysicalMemory = False
+        victimPageTableEntry.physicalFrameNumber = None
+        victimPageTableEntry.referenceBit = False
+        self.virtualPageByPhysicalFrameLista[physicalFrameNumber] = None
+        self.translationLookasideBuffer.Invalidate(victimVirtualPageNumber)
+
+        self.LoadVirtualPageIntoFrame(requestedVirtualPageNumber, physicalFrameNumber)
+        return victimVirtualPageNumber, physicalFrameNumber
 
     def ComposePhysicalAddress(
         self, physicalFrameNumber: int, pageOffset: int
@@ -174,6 +242,108 @@ class MemoryManager:
     def Translate(self, logicalAddress: int) -> TranslationResult:
         """Traduz um endereço lógico e devolve o registro completo da operação."""
 
-        raise NotImplementedError(
-            "O fluxo completo de tradução será implementado na Etapa 4."
+        virtualPageNumber, pageOffset = self.DecomposeLogicalAddress(logicalAddress)
+        translationStepsLista = self.InitializeTranslationStepsLista()
+        translationStepsLista.append(
+            f"Endereço lógico {logicalAddress}: página {virtualPageNumber}, "
+            f"deslocamento {pageOffset}."
         )
+
+        wasTlbHit = False
+        wasPageFault = False
+        evictedVirtualPageNumber: int | None = None
+        cachedPhysicalFrameNumber = self.translationLookasideBuffer.Lookup(
+            virtualPageNumber
+        )
+
+        if cachedPhysicalFrameNumber is not None:
+            wasTlbHit = True
+            physicalFrameNumber = cachedPhysicalFrameNumber
+            translationStepsLista.append(
+                f"TLB hit: página {virtualPageNumber} -> quadro {physicalFrameNumber}."
+            )
+        else:
+            translationStepsLista.append(f"TLB miss: página {virtualPageNumber}.")
+            pageTableEntry = self.pageTableEntryLista[virtualPageNumber]
+
+            if pageTableEntry.isLoadedInPhysicalMemory:
+                loadedPhysicalFrameNumber = pageTableEntry.physicalFrameNumber
+                if loadedPhysicalFrameNumber is None:
+                    raise RuntimeError("Página presente sem número de quadro físico.")
+                physicalFrameNumber = loadedPhysicalFrameNumber
+                translationStepsLista.append(
+                    f"Tabela de páginas: página {virtualPageNumber} presente "
+                    f"no quadro {physicalFrameNumber}."
+                )
+            else:
+                wasPageFault = True
+                translationStepsLista.append(
+                    f"Falha de página: página {virtualPageNumber} ausente."
+                )
+
+                if self.freePhysicalFrameQueue:
+                    physicalFrameNumber = self.LoadVirtualPageIntoFreeFrame(
+                        virtualPageNumber
+                    )
+                    translationStepsLista.append(
+                        f"Quadro livre {physicalFrameNumber} selecionado."
+                    )
+                else:
+                    evictedVirtualPageNumber, physicalFrameNumber = (
+                        self.ReplaceVirtualPage(virtualPageNumber)
+                    )
+                    translationStepsLista.append(
+                        f"Página vítima {evictedVirtualPageNumber} removida; "
+                        f"quadro {physicalFrameNumber} reutilizado."
+                    )
+
+                translationStepsLista.append(
+                    f"Página {virtualPageNumber} carregada do backing store."
+                )
+                self.pageReplacementPolicy.OnPageLoaded(virtualPageNumber)
+
+            self.translationLookasideBuffer.Insert(
+                virtualPageNumber, physicalFrameNumber
+            )
+            translationStepsLista.append(
+                f"TLB atualizada: página {virtualPageNumber} -> quadro "
+                f"{physicalFrameNumber}."
+            )
+
+        pageTableEntry = self.pageTableEntryLista[virtualPageNumber]
+        pageTableEntry.referenceBit = True
+        self.pageReplacementPolicy.OnPageAccessed(virtualPageNumber)
+
+        physicalAddress = self.ComposePhysicalAddress(physicalFrameNumber, pageOffset)
+        unsignedByteValue, signedByteValue = self.ReadByteAtPhysicalAddress(
+            physicalAddress
+        )
+        translationStepsLista.append(
+            f"Endereço físico {physicalAddress}: byte sem sinal {unsignedByteValue}, "
+            f"com sinal {signedByteValue}."
+        )
+
+        translationSteps = self.InitializeTranslationSteps(translationStepsLista)
+        translationResult = TranslationResult(
+            logicalAddress=logicalAddress,
+            virtualPageNumber=virtualPageNumber,
+            pageOffset=pageOffset,
+            physicalFrameNumber=physicalFrameNumber,
+            physicalAddress=physicalAddress,
+            unsignedByteValue=unsignedByteValue,
+            signedByteValue=signedByteValue,
+            wasTlbHit=wasTlbHit,
+            wasPageFault=wasPageFault,
+            evictedVirtualPageNumber=evictedVirtualPageNumber,
+            translationSteps=translationSteps,
+        )
+
+        # A página pode ter exigido carregamento, mas esta continua sendo uma única
+        # referência lógica: contar somente depois de concluir toda a tradução.
+        self.simulationStatistics.translatedAddressCount += 1
+        if wasPageFault:
+            self.simulationStatistics.pageFaultCount += 1
+        if wasTlbHit:
+            self.simulationStatistics.tlbHitCount += 1
+
+        return translationResult
