@@ -16,9 +16,9 @@ TlbReplacementPolicyName: TypeAlias = Literal["fifo"]
 class PageTableEntry:
     """Representa o estado de uma página virtual na tabela de páginas."""
 
-    physical_frame_number: int | None = None
-    is_loaded_in_physical_memory: bool = False
-    reference_bit: bool = False
+    physicalFrameNumber: int | None = None
+    isLoadedInPhysicalMemory: bool = False
+    referenceBit: bool = False
 
 
 # frozen=True é adequado porque o resultado representa uma fotografia de uma tradução
@@ -28,23 +28,23 @@ class PageTableEntry:
 class TranslationResult:
     """Reúne os dados e passos produzidos por uma tradução de endereço."""
 
-    logical_address: int
-    virtual_page_number: int
-    page_offset: int
-    physical_frame_number: int
-    physical_address: int
-    unsigned_byte_value: int
-    signed_byte_value: int
-    was_tlb_hit: bool
-    was_page_fault: bool
-    evicted_virtual_page_number: int | None
-    translation_steps: tuple[str, ...]
+    logicalAddress: int
+    virtualPageNumber: int
+    pageOffset: int
+    physicalFrameNumber: int
+    physicalAddress: int
+    unsignedByteValue: int
+    signedByteValue: int
+    wasTlbHit: bool
+    wasPageFault: bool
+    evictedVirtualPageNumber: int | None
+    translationSteps: tuple[str, ...]
 
 
 @dataclass(slots=True)
 class SimulationStatistics:
     """Mantém os contadores acumulados durante uma execução do simulador."""
 
-    translated_address_count: int = 0
-    page_fault_count: int = 0
-    tlb_hit_count: int = 0
+    translatedAddressCount: int = 0
+    pageFaultCount: int = 0
+    tlbHitCount: int = 0

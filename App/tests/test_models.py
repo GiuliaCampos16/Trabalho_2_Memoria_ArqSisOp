@@ -3,10 +3,10 @@
 import unittest
 from dataclasses import FrozenInstanceError
 
-from test_support import add_app_directory_to_import_path
+from test_support import AddAppDirectoryToImportPath
 
 
-add_app_directory_to_import_path()
+AddAppDirectoryToImportPath()
 
 from models import (  # noqa: E402  # Depende do caminho configurado acima.
     PageTableEntry,
@@ -15,55 +15,65 @@ from models import (  # noqa: E402  # Depende do caminho configurado acima.
 )
 
 
+def InitializeTranslationSteps() -> tuple[str, ...]:
+    """Prepara os eventos fixos usados para testar a imutabilidade do resultado."""
+
+    translationStepsLista: list[str] = []
+    translationStepsLista.append("Falha de página")
+    translationStepsLista.append("Página carregada")
+    translationSteps = tuple(translationStepsLista)
+    return translationSteps
+
+
 class ModelTests(unittest.TestCase):
     """Verifica valores iniciais, mutabilidade de estado e resultados imutáveis."""
 
     def test_page_table_entry_starts_as_absent(self) -> None:
-        page_table_entry = PageTableEntry()
+        pageTableEntry = PageTableEntry()
 
-        self.assertIsNone(page_table_entry.physical_frame_number)
-        self.assertFalse(page_table_entry.is_loaded_in_physical_memory)
-        self.assertFalse(page_table_entry.reference_bit)
+        self.assertIsNone(pageTableEntry.physicalFrameNumber)
+        self.assertFalse(pageTableEntry.isLoadedInPhysicalMemory)
+        self.assertFalse(pageTableEntry.referenceBit)
 
     def test_page_table_entry_is_mutable_runtime_state(self) -> None:
-        page_table_entry = PageTableEntry()
+        pageTableEntry = PageTableEntry()
 
-        page_table_entry.physical_frame_number = 7
-        page_table_entry.is_loaded_in_physical_memory = True
-        page_table_entry.reference_bit = True
+        pageTableEntry.physicalFrameNumber = 7
+        pageTableEntry.isLoadedInPhysicalMemory = True
+        pageTableEntry.referenceBit = True
 
-        self.assertEqual(page_table_entry.physical_frame_number, 7)
-        self.assertTrue(page_table_entry.is_loaded_in_physical_memory)
-        self.assertTrue(page_table_entry.reference_bit)
+        self.assertEqual(pageTableEntry.physicalFrameNumber, 7)
+        self.assertTrue(pageTableEntry.isLoadedInPhysicalMemory)
+        self.assertTrue(pageTableEntry.referenceBit)
 
     def test_translation_result_is_immutable(self) -> None:
-        translation_result = TranslationResult(
-            logical_address=16_916,
-            virtual_page_number=66,
-            page_offset=20,
-            physical_frame_number=0,
-            physical_address=20,
-            unsigned_byte_value=0,
-            signed_byte_value=0,
-            was_tlb_hit=False,
-            was_page_fault=True,
-            evicted_virtual_page_number=None,
-            translation_steps=("Falha de página", "Página carregada"),
+        translationResult = TranslationResult(
+            logicalAddress=16_916,
+            virtualPageNumber=66,
+            pageOffset=20,
+            physicalFrameNumber=0,
+            physicalAddress=20,
+            unsignedByteValue=0,
+            signedByteValue=0,
+            wasTlbHit=False,
+            wasPageFault=True,
+            evictedVirtualPageNumber=None,
+            translationSteps=InitializeTranslationSteps(),
         )
 
         with self.assertRaises(FrozenInstanceError):
-            translation_result.physical_address = 21  # type: ignore[misc]
+            translationResult.physicalAddress = 21  # type: ignore[misc]
 
     def test_simulation_statistics_are_mutable_counters(self) -> None:
-        simulation_statistics = SimulationStatistics()
+        simulationStatistics = SimulationStatistics()
 
-        simulation_statistics.translated_address_count += 1
-        simulation_statistics.page_fault_count += 1
-        simulation_statistics.tlb_hit_count += 1
+        simulationStatistics.translatedAddressCount += 1
+        simulationStatistics.pageFaultCount += 1
+        simulationStatistics.tlbHitCount += 1
 
-        self.assertEqual(simulation_statistics.translated_address_count, 1)
-        self.assertEqual(simulation_statistics.page_fault_count, 1)
-        self.assertEqual(simulation_statistics.tlb_hit_count, 1)
+        self.assertEqual(simulationStatistics.translatedAddressCount, 1)
+        self.assertEqual(simulationStatistics.pageFaultCount, 1)
+        self.assertEqual(simulationStatistics.tlbHitCount, 1)
 
 
 if __name__ == "__main__":

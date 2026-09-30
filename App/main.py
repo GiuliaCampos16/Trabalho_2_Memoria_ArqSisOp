@@ -3,36 +3,32 @@
 import sys
 
 import config
-from io_utils import read_backing_store, read_logical_addresses
+from io_utils import ReadBackingStore, ReadLogicalAddresses
 
 
-def main() -> int:
+def Main() -> int:
     """Valida a configuração e carrega as entradas necessárias ao simulador."""
 
     try:
-        config.validate_configuration()
-        logical_addresses = read_logical_addresses(
-            config.LOGICAL_ADDRESSES_FILE_PATH,
-            config.MAXIMUM_LOGICAL_ADDRESS,
+        config.ValidateConfiguration()
+        logicalAddressLista = ReadLogicalAddresses(
+            config.logicalAddressesFilePath,
+            config.maximumLogicalAddress,
         )
-        ## Observações, lendo o arquivo manualmente após a função read_backing_stroe
-        ## deu para perceber que o arquivo binario parece um array de inteiros de 4 bytes
-        ## em sequencia
-        backing_store_bytes = read_backing_store(
-            config.BACKING_STORE_FILE_PATH,
-            config.VIRTUAL_MEMORY_SIZE_BYTES,
+        # O arquivo fornecido codifica números em grupos de quatro bytes, mas o
+        # simulador preserva cada byte individual para a paginação.
+        backingStoreBytes = ReadBackingStore(
+            config.backingStoreFilePath,
+            config.virtualMemorySizeBytes,
         )
     except (OSError, ValueError) as error:
         print(f"Erro ao carregar os dados: {error}", file=sys.stderr)
         return 1
-    
-    # for i in range(100):
-    #     print(f"{backing_store_bytes[i]}\n")
-    
-    print(f"Endereços lógicos carregados: {len(logical_addresses)}")
-    print(f"Bytes carregados do backing store: {len(backing_store_bytes)}")
+
+    print(f"Endereços lógicos carregados: {len(logicalAddressLista)}")
+    print(f"Bytes carregados do backing store: {len(backingStoreBytes)}")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(Main())

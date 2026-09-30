@@ -4,110 +4,153 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_support import add_app_directory_to_import_path
+from test_support import AddAppDirectoryToImportPath
 
 
-add_app_directory_to_import_path()
+AddAppDirectoryToImportPath()
 
 import config  # noqa: E402  # Os arquivos simples de App entram no caminho acima.
-from io_utils import read_backing_store, read_logical_addresses  # noqa: E402
+from io_utils import ReadBackingStore, ReadLogicalAddresses  # noqa: E402
+
+
+def InitializeExpectedAddressLista() -> list[int]:
+    """Define os dois limites válidos esperados na leitura de endereços."""
+
+    expectedAddressLista: list[int] = []
+    expectedAddressLista.append(0)
+    expectedAddressLista.append(65_535)
+    return expectedAddressLista
+
+
+def InitializeEmptyAddressLista() -> list[int]:
+    """Define a saída esperada quando o arquivo de endereços está vazio."""
+
+    emptyAddressLista: list[int] = []
+    return emptyAddressLista
+
+
+def InitializeInvalidCaseLista() -> list[tuple[str, str]]:
+    """Reúne linhas inválidas e os trechos esperados nas mensagens de erro."""
+
+    invalidCaseLista: list[tuple[str, str]] = []
+    invalidCaseLista.append(("12\n \n", "linha está vazia"))
+    invalidCaseLista.append(("12\nabc\n", "decimal inválido"))
+    invalidCaseLista.append(("12\n-3\n", "negativo"))
+    invalidCaseLista.append(("12\n65536\n", "supera o máximo"))
+    return invalidCaseLista
+
+
+def InitializeExpectedBackingStoreBytes() -> bytes:
+    """Monta os bytes de fronteira usados no teste de leitura binária."""
+
+    expectedBackingStoreBytes = bytearray()
+    expectedBackingStoreBytes.append(0)
+    expectedBackingStoreBytes.append(127)
+    expectedBackingStoreBytes.append(128)
+    expectedBackingStoreBytes.append(255)
+    return bytes(expectedBackingStoreBytes)
+
+
+def InitializeShortBackingStoreBytes() -> bytes:
+    """Monta um backing store menor que o tamanho exigido pelo teste."""
+
+    shortBackingStoreBytes = bytearray()
+    shortBackingStoreBytes.append(1)
+    shortBackingStoreBytes.append(2)
+    shortBackingStoreBytes.append(3)
+    return bytes(shortBackingStoreBytes)
 
 
 class InputReaderTests(unittest.TestCase):
     """Verifica a conversão dos arquivos e as mensagens dos erros de entrada."""
 
     def test_addresses_accept_boundaries_and_surrounding_spaces(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            addresses_path = Path(temporary_directory) / "addresses.txt"
-            addresses_path.write_text(" 0 \n 65535\t\n", encoding="utf-8")
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            addressesPath = Path(temporaryDirectory) / "addresses.txt"
+            addressesPath.write_text(" 0 \n 65535\t\n", encoding="utf-8")
 
-            addresses = read_logical_addresses(addresses_path, 65_535)
+            addressesLista = ReadLogicalAddresses(addressesPath, 65_535)
 
-        self.assertEqual(addresses, [0, 65_535])
+        self.assertEqual(addressesLista, InitializeExpectedAddressLista())
 
     def test_empty_addresses_file_returns_empty_list(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            addresses_path = Path(temporary_directory) / "empty.txt"
-            addresses_path.write_text("", encoding="utf-8")
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            addressesPath = Path(temporaryDirectory) / "empty.txt"
+            addressesPath.write_text("", encoding="utf-8")
 
-            addresses = read_logical_addresses(addresses_path, 65_535)
+            addressesLista = ReadLogicalAddresses(addressesPath, 65_535)
 
-        self.assertEqual(addresses, [])
+        self.assertEqual(addressesLista, InitializeEmptyAddressLista())
 
     def test_invalid_address_lines_report_path_and_line(self) -> None:
-        invalid_cases = (
-            ("12\n \n", "linha está vazia"),
-            ("12\nabc\n", "decimal inválido"),
-            ("12\n-3\n", "negativo"),
-            ("12\n65536\n", "supera o máximo"),
-        )
+        invalidCaseLista = InitializeInvalidCaseLista()
 
-        for file_contents, expected_message in invalid_cases:
-            with self.subTest(file_contents=file_contents):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    addresses_path = Path(temporary_directory) / "addresses.txt"
-                    addresses_path.write_text(file_contents, encoding="utf-8")
+        for fileContents, expectedMessage in invalidCaseLista:
+            with self.subTest(fileContents=fileContents):
+                with tempfile.TemporaryDirectory() as temporaryDirectory:
+                    addressesPath = Path(temporaryDirectory) / "addresses.txt"
+                    addressesPath.write_text(fileContents, encoding="utf-8")
 
-                    with self.assertRaises(ValueError) as raised_error:
-                        read_logical_addresses(addresses_path, 65_535)
+                    with self.assertRaises(ValueError) as raisedError:
+                        ReadLogicalAddresses(addressesPath, 65_535)
 
-                    error_message = str(raised_error.exception)
-                    self.assertIn(str(addresses_path), error_message)
-                    self.assertIn("linha 2", error_message)
-                    self.assertIn(expected_message, error_message)
+                    errorMessage = str(raisedError.exception)
+                    self.assertIn(str(addressesPath), errorMessage)
+                    self.assertIn("linha 2", errorMessage)
+                    self.assertIn(expectedMessage, errorMessage)
 
     def test_backing_store_returns_exact_binary_content(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            backing_store_path = Path(temporary_directory) / "backing.bin"
-            expected_bytes = bytes((0, 127, 128, 255))
-            backing_store_path.write_bytes(expected_bytes)
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            backingStorePath = Path(temporaryDirectory) / "backing.bin"
+            expectedBytes = InitializeExpectedBackingStoreBytes()
+            backingStorePath.write_bytes(expectedBytes)
 
-            actual_bytes = read_backing_store(backing_store_path, 4)
+            actualBytes = ReadBackingStore(backingStorePath, 4)
 
-        self.assertEqual(actual_bytes, expected_bytes)
+        self.assertEqual(actualBytes, expectedBytes)
 
     def test_backing_store_rejects_incorrect_size(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            backing_store_path = Path(temporary_directory) / "backing.bin"
-            backing_store_path.write_bytes(bytes((1, 2, 3)))
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            backingStorePath = Path(temporaryDirectory) / "backing.bin"
+            backingStorePath.write_bytes(InitializeShortBackingStoreBytes())
 
-            with self.assertRaises(ValueError) as raised_error:
-                read_backing_store(backing_store_path, 4)
+            with self.assertRaises(ValueError) as raisedError:
+                ReadBackingStore(backingStorePath, 4)
 
-        error_message = str(raised_error.exception)
-        self.assertIn(str(backing_store_path), error_message)
-        self.assertIn("4 bytes", error_message)
-        self.assertIn("3 bytes", error_message)
+        errorMessage = str(raisedError.exception)
+        self.assertIn(str(backingStorePath), errorMessage)
+        self.assertIn("4 bytes", errorMessage)
+        self.assertIn("3 bytes", errorMessage)
 
     def test_missing_input_files_report_their_paths(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            missing_addresses_path = Path(temporary_directory) / "missing.txt"
-            missing_backing_store_path = Path(temporary_directory) / "missing.bin"
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            missingAddressesPath = Path(temporaryDirectory) / "missing.txt"
+            missingBackingStorePath = Path(temporaryDirectory) / "missing.bin"
 
-            with self.assertRaises(OSError) as addresses_error:
-                read_logical_addresses(missing_addresses_path, 65_535)
-            with self.assertRaises(OSError) as backing_store_error:
-                read_backing_store(missing_backing_store_path, 4)
+            with self.assertRaises(OSError) as addressesError:
+                ReadLogicalAddresses(missingAddressesPath, 65_535)
+            with self.assertRaises(OSError) as backingStoreError:
+                ReadBackingStore(missingBackingStorePath, 4)
 
-        self.assertIn(str(missing_addresses_path), str(addresses_error.exception))
+        self.assertIn(str(missingAddressesPath), str(addressesError.exception))
         self.assertIn(
-            str(missing_backing_store_path), str(backing_store_error.exception)
+            str(missingBackingStorePath), str(backingStoreError.exception)
         )
 
     def test_supplied_work_files_match_stage_two_assumptions(self) -> None:
-        logical_addresses = read_logical_addresses(
-            config.LOGICAL_ADDRESSES_FILE_PATH,
-            config.MAXIMUM_LOGICAL_ADDRESS,
+        logicalAddressLista = ReadLogicalAddresses(
+            config.logicalAddressesFilePath,
+            config.maximumLogicalAddress,
         )
-        backing_store_bytes = read_backing_store(
-            config.BACKING_STORE_FILE_PATH,
-            config.VIRTUAL_MEMORY_SIZE_BYTES,
+        backingStoreBytes = ReadBackingStore(
+            config.backingStoreFilePath,
+            config.virtualMemorySizeBytes,
         )
 
-        self.assertEqual(len(logical_addresses), 1_000)
-        self.assertEqual(min(logical_addresses), 39)
-        self.assertEqual(max(logical_addresses), 65_449)
-        self.assertEqual(len(backing_store_bytes), 65_536)
+        self.assertEqual(len(logicalAddressLista), 1_000)
+        self.assertEqual(min(logicalAddressLista), 39)
+        self.assertEqual(max(logicalAddressLista), 65_449)
+        self.assertEqual(len(backingStoreBytes), 65_536)
 
 
 if __name__ == "__main__":

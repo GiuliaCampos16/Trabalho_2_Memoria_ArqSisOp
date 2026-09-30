@@ -23,18 +23,18 @@ class PageReplacementPolicy(Protocol):
     concretas que atenderão ao protocolo serão implementadas nas Etapas 5 e 6.
     """
 
-    def on_page_loaded(self, loaded_virtual_page_number: int) -> None:
+    def OnPageLoaded(self, loadedVirtualPageNumber: int) -> None:
         """Registra que uma página virtual acabou de ocupar um quadro físico."""
 
         ...
 
-    def on_page_accessed(self, accessed_virtual_page_number: int) -> None:
+    def OnPageAccessed(self, accessedVirtualPageNumber: int) -> None:
         """Registra uma referência a uma página que está na memória física."""
 
         ...
 
-    def select_victim(
-        self, page_table_entries: Sequence[PageTableEntry]
+    def SelectVictim(
+        self, pageTableEntryLista: Sequence[PageTableEntry]
     ) -> int:
         """Seleciona e devolve o número da página virtual que deve sair."""
 
